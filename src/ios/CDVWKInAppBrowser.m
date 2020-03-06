@@ -24,6 +24,7 @@
 #endif
 
 #import <Cordova/CDVPluginResult.h>
+#import <Cordova/CDVUserAgentUtil.h>
 
 #define    kInAppBrowserTargetSelf @"_self"
 #define    kInAppBrowserTargetSystem @"_system"
@@ -63,6 +64,11 @@ static CDVWKInAppBrowser* instance = nil;
     _waitForBeforeload = NO;
 }
 
+- (id)settingForKey:(NSString*)key
+{
+    return [self.commandDelegate.settings objectForKey:[key lowercaseString]];
+}
+
 - (void)onReset
 {
     [self close:nil];
@@ -99,7 +105,11 @@ static CDVWKInAppBrowser* instance = nil;
     self.callbackId = command.callbackId;
     
     if (url != nil) {
+#ifdef __CORDOVA_4_0_0
         NSURL* baseUrl = [self.webViewEngine URL];
+#else
+        NSURL* baseUrl = [self.webView.request URL];
+#endif
         NSURL* absoluteUrl = [[NSURL URLWithString:url relativeToURL:baseUrl] absoluteURL];
         
         if ([self isSystemUrl:absoluteUrl]) {
@@ -199,7 +209,16 @@ static CDVWKInAppBrowser* instance = nil;
     }
 
     if (self.inAppBrowserViewController == nil) {
-        self.inAppBrowserViewController = [[CDVWKInAppBrowserViewController alloc] initWithBrowserOptions: browserOptions andSettings:self.commandDelegate.settings];
+        NSString* userAgent = [CDVUserAgentUtil originalUserAgent];
+        NSString* overrideUserAgent = [self settingForKey:@"OverrideUserAgent"];
+        NSString* appendUserAgent = [self settingForKey:@"AppendUserAgent"];
+        if(overrideUserAgent){
+            userAgent = overrideUserAgent;
+        }
+        if(appendUserAgent){
+            userAgent = [userAgent stringByAppendingString: appendUserAgent];
+        }
+        self.inAppBrowserViewController = [[CDVWKInAppBrowserViewController alloc] initWithUserAgent:userAgent prevUserAgent:[self.commandDelegate userAgent] browserOptions: browserOptions];
         self.inAppBrowserViewController.navigationDelegate = self;
         
         if ([self.viewController conformsToProtocol:@protocol(CDVScreenOrientationDelegate)]) {
@@ -350,9 +369,18 @@ static CDVWKInAppBrowser* instance = nil;
 - (void)openInCordovaWebView:(NSURL*)url withOptions:(NSString*)options
 {
     NSURLRequest* request = [NSURLRequest requestWithURL:url];
+    
+#ifdef __CORDOVA_4_0_0
     // the webview engine itself will filter for this according to <allow-navigation> policy
     // in config.xml for cordova-ios-4.0
     [self.webViewEngine loadRequest:request];
+#else
+    if ([self.commandDelegate URLIsWhitelisted:url]) {
+        [self.webView loadRequest:request];
+    } else { // this assumes the InAppBrowser can be excepted from the white-list
+        [self openInInAppBrowser:url withOptions:options];
+    }
+#endif
 }
 
 - (void)openInSystem:(NSURL*)url
@@ -658,6 +686,8 @@ static CDVWKInAppBrowser* instance = nil;
         [self.commandDelegate sendPluginResult:pluginResult callbackId:self.callbackId];
         self.callbackId = nil;
     }
+
+    self.inAppBrowserViewController.popupBridge = nil;
     
     [self.inAppBrowserViewController.configuration.userContentController removeScriptMessageHandlerForName:IAB_BRIDGE_NAME];
     self.inAppBrowserViewController.configuration = nil;
@@ -697,12 +727,13 @@ static CDVWKInAppBrowser* instance = nil;
 BOOL viewRenderedAtLeastOnce = FALSE;
 BOOL isExiting = FALSE;
 
-- (id)initWithBrowserOptions: (CDVInAppBrowserOptions*) browserOptions andSettings:(NSDictionary *)settings
+- (id)initWithUserAgent:(NSString*)userAgent prevUserAgent:(NSString*)prevUserAgent browserOptions: (CDVInAppBrowserOptions*) browserOptions
 {
     self = [super init];
     if (self != nil) {
+        _userAgent = userAgent;
+        _prevUserAgent = prevUserAgent;
         _browserOptions = browserOptions;
-        _settings = settings;
         self.webViewUIDelegate = [[CDVWKInAppBrowserUIDelegate alloc] initWithTitle:[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleDisplayName"]];
         [self.webViewUIDelegate setViewController:self];
         
@@ -726,15 +757,6 @@ BOOL isExiting = FALSE;
     WKUserContentController* userContentController = [[WKUserContentController alloc] init];
     
     WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
-    
-    NSString *userAgent = configuration.applicationNameForUserAgent;
-    if (
-        [self settingForKey:@"OverrideUserAgent"] == nil &&
-        [self settingForKey:@"AppendUserAgent"] != nil
-        ) {
-        userAgent = [NSString stringWithFormat:@"%@ %@", userAgent, [self settingForKey:@"AppendUserAgent"]];
-    }
-    configuration.applicationNameForUserAgent = userAgent;
     configuration.userContentController = userContentController;
 #if __has_include("CDVWKProcessPoolFactory.h")
     configuration.processPool = [[CDVWKProcessPoolFactory sharedFactory] sharedProcessPool];
@@ -765,9 +787,8 @@ BOOL isExiting = FALSE;
     self.webView.navigationDelegate = self;
     self.webView.UIDelegate = self.webViewUIDelegate;
     self.webView.backgroundColor = [UIColor whiteColor];
-    if ([self settingForKey:@"OverrideUserAgent"] != nil) {
-        self.webView.customUserAgent = [self settingForKey:@"OverrideUserAgent"];
-    }
+
+    self.popupBridge = [[POPPopupBridge alloc] initWithWebView:self.webView delegate:self];
     
     self.webView.clearsContextBeforeDrawing = YES;
     self.webView.clipsToBounds = YES;
@@ -896,11 +917,6 @@ BOOL isExiting = FALSE;
     [self.view addSubview:self.toolbar];
     [self.view addSubview:self.addressLabel];
     [self.view addSubview:self.spinner];
-}
-
-- (id)settingForKey:(NSString*)key
-{
-    return [_settings objectForKey:[key lowercaseString]];
 }
 
 - (void) setWebViewFrame : (CGRect) frame {
@@ -1062,6 +1078,7 @@ BOOL isExiting = FALSE;
 
 - (void)close
 {
+    [CDVUserAgentUtil releaseLock:&_userAgentLockToken];
     self.currentURL = nil;
     
     __weak UIViewController* weakSelf = self;
@@ -1080,7 +1097,17 @@ BOOL isExiting = FALSE;
 - (void)navigateTo:(NSURL*)url
 {
     NSURLRequest* request = [NSURLRequest requestWithURL:url];
-    [self.webView loadRequest:request];
+    
+    if (_userAgentLockToken != 0) {
+        [self.webView loadRequest:request];
+    } else {
+        __weak CDVWKInAppBrowserViewController* weakSelf = self;
+        [CDVUserAgentUtil acquireLock:^(NSInteger lockToken) {
+            _userAgentLockToken = lockToken;
+            [CDVUserAgentUtil setUserAgent:_userAgent lockToken:lockToken];
+            [weakSelf.webView loadRequest:request];
+        }];
+    }
 }
 
 - (void)goBack:(id)sender
@@ -1098,8 +1125,21 @@ BOOL isExiting = FALSE;
     if (IsAtLeastiOSVersion(@"7.0") && !viewRenderedAtLeastOnce) {
         viewRenderedAtLeastOnce = TRUE;
         CGRect viewBounds = [self.webView bounds];
-        viewBounds.origin.y = STATUSBAR_HEIGHT;
-        viewBounds.size.height = viewBounds.size.height - STATUSBAR_HEIGHT;
+        
+        //simplified from https://github.com/apache/cordova-plugin-inappbrowser/issues/301#issuecomment-452220131
+        //and https://stackoverflow.com/questions/46192280/detect-if-the-device-is-iphone-x
+        bool hasTopNotch = NO;
+        if (@available(iOS 11.0, *)) {
+            hasTopNotch = [[[UIApplication sharedApplication] delegate] window].safeAreaInsets.top > 20.0;
+        }
+        if(hasTopNotch){
+            viewBounds.origin.y = [UIApplication sharedApplication].statusBarFrame.size.height;
+            viewBounds.size.height = viewBounds.size.height - [UIApplication sharedApplication].statusBarFrame.size.height;
+        } else {
+            viewBounds.origin.y = STATUSBAR_HEIGHT;
+            viewBounds.size.height = viewBounds.size.height - STATUSBAR_HEIGHT;
+        }
+        
         self.webView.frame = viewBounds;
         [[UIApplication sharedApplication] setStatusBarStyle:[self preferredStatusBarStyle]];
     }
@@ -1180,6 +1220,24 @@ BOOL isExiting = FALSE;
     
     [self.spinner stopAnimating];
     
+    // Work around a bug where the first time a PDF is opened, all UIWebViews
+    // reload their User-Agent from NSUserDefaults.
+    // This work-around makes the following assumptions:
+    // 1. The app has only a single Cordova Webview. If not, then the app should
+    //    take it upon themselves to load a PDF in the background as a part of
+    //    their start-up flow.
+    // 2. That the PDF does not require any additional network requests. We change
+    //    the user-agent here back to that of the CDVViewController, so requests
+    //    from it must pass through its white-list. This *does* break PDFs that
+    //    contain links to other remote PDF/websites.
+    // More info at https://issues.apache.org/jira/browse/CB-2225
+    BOOL isPDF = NO;
+    //TODO webview class
+    //BOOL isPDF = [@"true" isEqualToString :[theWebView evaluateJavaScript:@"document.body==null"]];
+    if (isPDF) {
+        [CDVUserAgentUtil setUserAgent:_prevUserAgent lockToken:_userAgentLockToken];
+    }
+    
     [self.navigationDelegate didFinishNavigation:theWebView];
 }
     
@@ -1241,6 +1299,16 @@ BOOL isExiting = FALSE;
     }
     
     return YES;
+}
+
+#pragma mark - POPPopupBridgeDelegate
+
+- (void)popupBridge:(POPPopupBridge *)bridge requestsPresentationOfViewController:(UIViewController *)viewController {
+    [self presentViewController:viewController animated:YES completion:nil];
+}
+
+- (void)popupBridge:(POPPopupBridge *)bridge requestsDismissalOfViewController:(UIViewController *)viewController {
+    [viewController dismissViewControllerAnimated:YES completion:nil];
 }
 
 
