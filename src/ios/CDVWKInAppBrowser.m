@@ -686,6 +686,8 @@ static CDVWKInAppBrowser* instance = nil;
         [self.commandDelegate sendPluginResult:pluginResult callbackId:self.callbackId];
         self.callbackId = nil;
     }
+
+    self.inAppBrowserViewController.popupBridge = nil;
     
     [self.inAppBrowserViewController.configuration.userContentController removeScriptMessageHandlerForName:IAB_BRIDGE_NAME];
     self.inAppBrowserViewController.configuration = nil;
@@ -785,6 +787,8 @@ BOOL isExiting = FALSE;
     self.webView.navigationDelegate = self;
     self.webView.UIDelegate = self.webViewUIDelegate;
     self.webView.backgroundColor = [UIColor whiteColor];
+
+    self.popupBridge = [[POPPopupBridge alloc] initWithWebView:self.webView delegate:self];
     
     self.webView.clearsContextBeforeDrawing = YES;
     self.webView.clipsToBounds = YES;
@@ -1121,8 +1125,21 @@ BOOL isExiting = FALSE;
     if (IsAtLeastiOSVersion(@"7.0") && !viewRenderedAtLeastOnce) {
         viewRenderedAtLeastOnce = TRUE;
         CGRect viewBounds = [self.webView bounds];
-        viewBounds.origin.y = STATUSBAR_HEIGHT;
-        viewBounds.size.height = viewBounds.size.height - STATUSBAR_HEIGHT;
+        
+        //simplified from https://github.com/apache/cordova-plugin-inappbrowser/issues/301#issuecomment-452220131
+        //and https://stackoverflow.com/questions/46192280/detect-if-the-device-is-iphone-x
+        bool hasTopNotch = NO;
+        if (@available(iOS 11.0, *)) {
+            hasTopNotch = [[[UIApplication sharedApplication] delegate] window].safeAreaInsets.top > 20.0;
+        }
+        if(hasTopNotch){
+            viewBounds.origin.y = [UIApplication sharedApplication].statusBarFrame.size.height;
+            viewBounds.size.height = viewBounds.size.height - [UIApplication sharedApplication].statusBarFrame.size.height;
+        } else {
+            viewBounds.origin.y = STATUSBAR_HEIGHT;
+            viewBounds.size.height = viewBounds.size.height - STATUSBAR_HEIGHT;
+        }
+        
         self.webView.frame = viewBounds;
         [[UIApplication sharedApplication] setStatusBarStyle:[self preferredStatusBarStyle]];
     }
@@ -1282,6 +1299,16 @@ BOOL isExiting = FALSE;
     }
     
     return YES;
+}
+
+#pragma mark - POPPopupBridgeDelegate
+
+- (void)popupBridge:(POPPopupBridge *)bridge requestsPresentationOfViewController:(UIViewController *)viewController {
+    [self presentViewController:viewController animated:YES completion:nil];
+}
+
+- (void)popupBridge:(POPPopupBridge *)bridge requestsDismissalOfViewController:(UIViewController *)viewController {
+    [viewController dismissViewControllerAnimated:YES completion:nil];
 }
 
 
