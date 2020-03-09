@@ -23,6 +23,7 @@
 #import "CDVWKInAppBrowserUIDelegate.h"
 #import "CDVInAppBrowserOptions.h"
 #import "CDVInAppBrowserNavigationController.h"
+#import "POPPopUpBridge.h"
 
 @class CDVWKInAppBrowserViewController;
 
@@ -49,10 +50,12 @@
 
 @end
 
-@interface CDVWKInAppBrowserViewController : UIViewController <CDVScreenOrientationDelegate,WKNavigationDelegate,WKUIDelegate,WKScriptMessageHandler>{
+@interface CDVWKInAppBrowserViewController : UIViewController <CDVScreenOrientationDelegate,WKNavigationDelegate,WKUIDelegate,WKScriptMessageHandler,POPPopupBridgeDelegate>{
     @private
+    NSString* _userAgent;
+    NSString* _prevUserAgent;
+    NSInteger _userAgentLockToken;
     CDVInAppBrowserOptions *_browserOptions;
-    NSDictionary *_settings;
 }
 
 @property (nonatomic, strong) IBOutlet WKWebView* webView;
@@ -69,12 +72,14 @@
 @property (nonatomic, weak) CDVWKInAppBrowser* navigationDelegate;
 @property (nonatomic) NSURL* currentURL;
 
+@property (nonatomic, strong) POPPopupBridge *popupBridge;
+
 - (void)close;
 - (void)navigateTo:(NSURL*)url;
 - (void)showLocationBar:(BOOL)show;
 - (void)showToolBar:(BOOL)show : (NSString *) toolbarPosition;
 - (void)setCloseButtonTitle:(NSString*)title : (NSString*) colorString : (int) buttonIndex;
 
-- (id)initWithBrowserOptions: (CDVInAppBrowserOptions*) browserOptions andSettings:(NSDictionary*) settings;
+- (id)initWithUserAgent:(NSString*)userAgent prevUserAgent:(NSString*)prevUserAgent browserOptions: (CDVInAppBrowserOptions*) browserOptions;
 
 @end
