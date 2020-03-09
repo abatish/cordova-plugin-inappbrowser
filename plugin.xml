@@ -22,7 +22,7 @@
         xmlns:android="http://schemas.android.com/apk/res/android"
         xmlns:tools="http://schemas.android.com/tools"
         id="cordova-plugin-inappbrowser"
-        version="3.2.0.1">
+        version="3.2.1">
 
     <name>InAppBrowser</name>
     <description>Cordova InAppBrowser Plugin</description>
