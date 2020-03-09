@@ -49,6 +49,9 @@
   },
   "author": "Apache Software Foundation",
   "license": "Apache-2.0",
+  "dependencies": {
+    "q": "^1.4.1"
+  },
   "devDependencies": {
     "eslint": "^4.0.0",
     "eslint-config-semistandard": "^11.0.0",
