@@ -19,8 +19,10 @@
 -->
 
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
-           id="cordova-plugin-inappbrowser"
-      version="3.2.1">
+        xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:tools="http://schemas.android.com/tools"
+        id="cordova-plugin-inappbrowser"
+        version="3.2.2.2">
 
     <name>InAppBrowser</name>
     <description>Cordova InAppBrowser Plugin</description>
@@ -64,6 +66,7 @@
         <resource-file src="src/android/res/drawable-mdpi/ic_action_remove.png" target="res/drawable-mdpi/ic_action_remove.png" />
         <resource-file src="src/android/res/drawable-xhdpi/ic_action_remove.png" target="res/drawable-xhdpi/ic_action_remove.png" />
         <resource-file src="src/android/res/drawable-xxhdpi/ic_action_remove.png" target="res/drawable-xxhdpi/ic_action_remove.png" />
+
         <!-- PopupBridge -->
         <config-file target="config.xml" parent="/*">
             <preference name="android-minSdkVersion" value="16" tools:overrideLibrary="com.braintreepayments.popupbridge" />
@@ -84,7 +87,6 @@
                 </intent-filter>
             </activity>
         </config-file>
-
     </platform>
 
     <!-- ios -->
@@ -122,6 +124,7 @@
 	    <source-file src="src/ios/CDVWKInAppBrowserUIDelegate.m" />
 
 	    <framework src="CoreGraphics.framework" />
+
         <!-- Popup Bridge -->
         <header-file src="src/ios/AppDelegate+PopupBridge.h" />
         <source-file src="src/ios/AppDelegate+PopupBridge.m" />
